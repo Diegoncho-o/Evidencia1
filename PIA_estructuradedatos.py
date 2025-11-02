@@ -12,6 +12,8 @@ import os
 FORMATO_FECHA = "%m/%d/%Y"
 fecha_actual = datetime.datetime.now().date()
 
+
+
 def inicializar_db(conn):
     try: 
         cursor = conn.cursor()
@@ -30,18 +32,34 @@ def inicializar_db(conn):
                     cupo INTEGER NOT NULL
                 )
             ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS Turno (
+                    id_turno INTEGER NOT NULL PRIMARY KEY,
+                    turno TEXT NOT NULL
+                )
+            ''')
+
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Reservacion (
                     folio INTEGER PRIMARY KEY,
                     id_cliente INTEGER,
                     id_sala INTEGER,
                     fecha DATE NOT NULL,
-                    turno TEXT NOT NULL,
-                    evento TEXT NOT NULL,
+                    turno INTEGER NOT NULL,
+                    evento INTEGER NOT NULL,
+                    cancelado INTEGER NOT NULL,
+                    FOREIGN KEY (turno) REFERENCES Turno (turno),
                     FOREIGN KEY (id_cliente) REFERENCES Cliente (id_cliente),
                     FOREIGN KEY (id_sala) REFERENCES Sala (id_sala)
                 )
             ''')
+            turnos = ("Mañana", "Tarde", "Noche")
+            for nombre_turno in turnos:
+                cursor.execute(''' INSERT INTO Turno (id_turno, turno)
+                                VALUES (?, ?)''', (turnos.index(nombre_turno) + 1, nombre_turno))
+
+
     except sqlite3.Error as e:
         print(e)
 
@@ -87,14 +105,14 @@ def conectar_db():
                     continue
             else:
                 print("Esa opcion no existe")
-                continue
-                    
+                continue         
         else:
             print(f" No se encontró una versión anterior archivo.db .")
             print("Iniciando con un estado inicial vacío.")
     
             conn = sqlite3.connect("archivo.db")
             return inicializar_db(conn)
+
 
 def generar_folio():
     try: 
@@ -104,31 +122,31 @@ def generar_folio():
             result = cursor.fetchone()
             
             return (result[0] or 1000) + 1  
-        
     except sqlite3.Error as e:
         print(e)
+
 
 def mostrar_clientes():
     try:
         with sqlite3.connect("archivo.db") as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id_cliente, apellido, nombre_cliente FROM Cliente ORDER BY apellido, nombre_cliente")
-            cursor_cliente = cursor.fetchall()
+            cursor.execute("SELECT c.id_cliente, c.apellido, c.nombre_cliente FROM Cliente c ORDER BY c.apellido, c.nombre_cliente")
+            cursor_turno = cursor.fetchall()
 
-            if not cursor_cliente:
+            if not cursor_turno:
                 print("\nNo hay clientes registrados.\n")
                 return False
-            print("CLAVE\tAPELLIDO\tNOMBRE")
+            print(f"{'CLAVE':<10}{'APELLIDO':<15}{'NOMBRE':<15}")
             print("-" * 40)
-            for id_cliente, apellido, nombre in  cursor_cliente:  
-                print(f"{id_cliente}\t{apellido}\t{nombre}")
+            for id_cliente, apellido, nombre in  cursor_turno:  
+                print(f"{id_cliente:<10}{apellido:<15}{nombre:<15}")
             return True
     except Exception as e:
         print(f"Error al mostrar clientes: {e}")
         return False
 
+
 def mostrar_salas_disponibles(fecha, turno):
-    
     try:
         with sqlite3.connect("archivo.db") as conn:
             cursor = conn.cursor()
@@ -137,41 +155,40 @@ def mostrar_salas_disponibles(fecha, turno):
                 FROM Sala s
                 WHERE s.id_sala NOT IN (
                     SELECT r.id_sala 
-                    FROM Reservacion r 
-                    WHERE r.fecha = ? AND r.turno = ?
+                    FROM Reservacion r
+                    WHERE r.fecha = ? AND r.turno = ? AND r.cancelado = 0
                 )
             ''', (fecha, turno))
             
         salas_disponibles = cursor.fetchall()
         disponibles = []
         
-        print("CLAVE\t\tNOMBRE\t\tCUPO")
+        print(f"{'CLAVE':<10}{'NOMBRE':<16}{'CUPO':<5}")
         print("-" * 40)
         for id_sala, nombre, cupo in salas_disponibles:
-            print(f"{id_sala:<16}{nombre:<16}{cupo}")
+            print(f"{id_sala:<10}{nombre:<16}{cupo:<5}")
             disponibles.append(id_sala)
         return disponibles
     except Exception as e:
         print(f"Error al mostrar salas disponibles: {e}")
         return []
-  
+
+
 def export_csv(fecha):
     datos_a_leer = {}
     with sqlite3.connect("archivo.db", detect_types = sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
         cursor = conn.cursor()
-        cursor.execute("Select folio, fecha, id_sala, turno, evento, id_cliente From Reservacion Where fecha = (?)", (fecha,))
-
+        cursor.execute("Select r.folio, r.fecha, r.id_sala, r.turno, r.evento, r.id_cliente From Reservacion r WHERE r.fecha = (?) AND r.cancelado = 0", (fecha,))
         reservaciones = cursor.fetchall()
                                
 
     with open("reservaciones.csv", "w", encoding='utf-8', newline="") as archivo:
         grabador = csv.writer(archivo)
-        grabador.writerow(("FOLIO", "FECHA", "SALA", "TURNO", "EVENTO", "CLIENTE"))
+        grabador.writerow(("FOLIO", "FECHA", "SALA", "TURNO", "EVENTO", "CLIENTE",))
 
         for folio, fecha_db, sala, turno, evento, cliente in reservaciones:
-                grabador.writerow((folio, fecha_db, sala, turno, evento, cliente))
-                
-
+                grabador.writerow((folio, fecha_db, sala, turno, evento, cliente ))
+    
     print(f"\nDatos exportados exitosamente a 'reservaciones.csv'")
 
     with open("reservaciones.csv","r", encoding='utf-8', newline="") as archivo:
@@ -181,16 +198,16 @@ def export_csv(fecha):
         for folio, fecha, sala, turno, evento, cliente in lector:
                 datos_a_leer[int(folio)] = [fecha, sala, turno, evento, cliente]
 
+
 def export_json(fecha):
-    
     with sqlite3.connect("archivo.db", detect_types = sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
         cursor = conn.cursor()
-        cursor.execute("Select folio, id_cliente, id_sala, fecha, turno, evento From Reservacion Where fecha = (?)", (fecha,))
+        cursor.execute("Select r.folio, r.id_cliente, r.id_sala, r.fecha, r.turno, r.evento From Reservacion r WHERE r.fecha = (?) AND r.cancelado = 0", (fecha,))
 
         reservaciones = cursor.fetchall()
         
     datos_leer = {}
-    for folio, cliente, sala, fecha_db, turno, evento, in reservaciones:
+    for folio, cliente, sala, fecha_db, turno, evento in reservaciones:
         
         datos_leer[folio] = {
         "FOLIO": folio,
@@ -207,12 +224,12 @@ def export_json(fecha):
     print(f"\nDatos exportados exitosamente a 'reservaciones.json'")
     print(f"Total de reservaciones exportadas: {len(datos_leer)}")
 
+
 def export_excel(fecha):
     try:
         with sqlite3.connect("archivo.db", detect_types = sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
             cursor = conn.cursor()
-            cursor.execute("Select folio, id_sala, fecha, turno, evento, id_cliente From Reservacion Where fecha = (?)", (fecha,))
-
+            cursor.execute("Select r.folio, r.id_sala, r.fecha, r.turno, r.evento, r.id_cliente From Reservacion r WHERE r.fecha = (?) AND r.cancelado = 0", (fecha,))
 
             reservaciones_db = cursor.fetchall()    
 
@@ -250,6 +267,8 @@ def export_excel(fecha):
                 hoja.cell(row= fila_actual, column=5, value=evento).alignment = centrado
                 hoja.cell(row= fila_actual, column=6, value= id_cliente).alignment = centrado
 
+
+
                 fila_actual += 1
 
             hoja.column_dimensions['A'].width = 12
@@ -258,6 +277,7 @@ def export_excel(fecha):
             hoja.column_dimensions['D'].width = 12
             hoja.column_dimensions['E'].width = 25
             hoja.column_dimensions['F'].width = 25
+            
 
             datos_reservaciones.save("Reservaciones.xlsx")
             print("Archivo Excel guardado con exito")
@@ -305,6 +325,7 @@ def menu_exportacion(fecha):
                     print(f"Ocurrió un problema: {sys.exc_info()[0:2]}")
                     continue
 
+
 def reservacion():
     try:
         if not mostrar_clientes():
@@ -325,21 +346,19 @@ def reservacion():
 
             with sqlite3.connect("archivo.db") as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT id_cliente FROM Cliente where id_cliente = (?)", (clave_cliente,))
-                cursor_cliente = cursor.fetchall()
+                cursor.execute("SELECT c.id_cliente FROM Cliente c WHERE c.id_cliente = (?)", (clave_cliente,))
+                cursor_turno = cursor.fetchall()
                 
-            if not cursor_cliente:
+            if not cursor_turno:
                 print("\nClave no registrada. Intenta de nuevo\n\n")
                 mostrar_clientes()
                 continue
-
             break
 
         while True:
             fecha_str = input("\nQue fecha le gustaria reservar (mm/dd/aaaa): ").strip()
 
             try:
-
                 fecha = datetime.datetime.strptime(fecha_str, FORMATO_FECHA).date()
                 if (fecha - fecha_actual).days < 2:
                     print("\nLa fecha debe ser al menos dos días después de hoy.\n")
@@ -361,7 +380,6 @@ def reservacion():
                     else:
                         print("Esa opcion no existe")
                 break
-            
             except ValueError:
                 print("\nFormato de fecha incorrecto.\n\n")
                 continue
@@ -369,17 +387,21 @@ def reservacion():
                 print(f"\nOcurrió un problema: {sys.exc_info()[0:2]}\n\n")
                 continue
 
-        turnos = ["Mañana", "Tarde", "Noche"]
-        print("\nTurnos disponibles: 1) Mañana 2) Tarde 3) Noche\n")
-
+ 
         while True:
-            
-            turno_op = input("\nSelecciona turno (1-3):  ").strip()
-            if turno_op not in ["1", "2", "3"]:
-                print("\nTurno inválido.\n")
+            print("\nTurnos disponibles: 1) Mañana 2) Tarde 3) Noche\n")
+
+            turno = input("\nSelecciona turno (1-3):  ").strip()
+            print("\n\n")
+            with sqlite3.connect("archivo.db") as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT turno FROM Turno t WHERE t.id_turno = (?)", (turno))
+                cursor_turno = cursor.fetchall()
+                
+            if not cursor_turno:
+                print("\nTurno no encontrado. Intenta de nuevo\n\n")
                 continue
 
-            turno = turnos[int(turno_op)-1]
             break
         
         disponibles = mostrar_salas_disponibles(fecha, turno)
@@ -404,12 +426,12 @@ def reservacion():
             break
         
         folio = generar_folio()
-        
+
         with sqlite3.connect("archivo.db") as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO Reservacion (folio, id_cliente, id_sala, fecha, turno, evento) 
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO Reservacion (folio, id_cliente, id_sala, fecha, turno, evento, cancelado)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
             ''', (folio, clave_cliente, clave_sala, fecha, turno, evento))
 
         print(f"\nReservación registrada con folio: {folio}\n")
@@ -418,6 +440,7 @@ def reservacion():
         return
     except Exception:
         print(f"\nError en reservación: {sys.exc_info()[0:2]}\n ")
+
 
 def editar_reservacion():
     try:
@@ -431,18 +454,18 @@ def editar_reservacion():
 
         with sqlite3.connect("archivo.db") as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT folio, fecha, evento FROM " \
-            " Reservacion WHERE fecha BETWEEN ? AND ?", (fecha_inicial, fecha_final))
+            cursor.execute("SELECT r.folio, r.fecha, r.evento FROM " \
+            " Reservacion r WHERE r.fecha BETWEEN ? AND ? AND r.cancelado = 0 ", (fecha_inicial, fecha_final))
             eventos = cursor.fetchall()
             
             if not eventos:
                 print("No hay eventos en ese rango.")
                 return
             
-            print("FOLIO\tFECHA\t\tEVENTO")
+            print(f"{'FOLIO':<10}{'FECHA':<15}{'EVENTO':<15}")
             print("-" * 40)
             for folio, fecha, evento in eventos:
-                print(f"{folio}\t{fecha}\t{evento}")
+                print(f"{folio:<10}{fecha:<15}{evento:<15}")
 
             while True:
 
@@ -460,13 +483,11 @@ def editar_reservacion():
                     folio = evento[0]
                     folios_permitidos.append(folio)
 
-                if not int(folio_seleccionado) in folios_permitidos:
+                if folio_seleccionado not in folios_permitidos:
                     print("Folio no encontrado")
-
                 break
             
             while True:
-
                 nuevo_nombre = input("Nuevo nombre del evento: ").strip()
                 if not nuevo_nombre:
                     print("El nombre del evento no puede estar vacío.")
@@ -474,17 +495,16 @@ def editar_reservacion():
 
                 with sqlite3.connect("archivo.db") as conn:
                     cursor = conn.cursor()
-                    cursor.execute("UPDATE Reservacion SET evento=? WHERE folio=?", (nuevo_nombre, folio))
+                    cursor.execute("UPDATE Reservacion SET evento=? WHERE folio=?", (nuevo_nombre, folio_seleccionado))
                 print("Evento actualizado.")
                 break
-        
-    except sqlite3.Error as e:
-        print(e)
+
     except Exception:
         print(f"Error al editar reservación: {sys.exc_info()[0:2]} ")
     except ValueError:
         print("Formato de fecha incorrecto.")
         return
+
 
 def consultar_reservaciones():
     try:
@@ -499,8 +519,10 @@ def consultar_reservaciones():
             cursor = conn.cursor()
             cursor.execute ('''SELECT r.folio, s.nombre_sala, r.turno, r.evento, 
                             c.nombre_cliente, c.apellido
-                           FROM Reservacion r INNER JOIN Cliente c ON r.id_cliente = c.id_cliente INNER JOIN Sala s ON r.id_sala = s.id_sala
-                           WHERE r.fecha = ?''', (fecha,))
+                            FROM Reservacion r
+                            INNER JOIN Cliente c ON r.id_cliente = c.id_cliente 
+                            INNER JOIN Sala s ON r.id_sala = s.id_sala
+                            WHERE r.fecha = ? AND r.cancelado = 0 ''', (fecha,))
             reservaciones = cursor.fetchall()
         
         if not reservaciones:
@@ -508,14 +530,14 @@ def consultar_reservaciones():
             return
             
         print("*" * 80)
-        print(f"**{'Reservaciones':^76}**")
+        print(f"{'Reservaciones':^76}")
         print("*" * 80)
-        print(f"{'Folio':<8}{'Sala':<16}{'Turno':<16}{'Evento':<24}{'Cliente':<24}")
+        print(f"{'Folio':<8}{'Sala':<16}{'Turno':<16}{'Evento':<20}{'Cliente':<24}")
         print("=" * 80)
         for reserva in reservaciones:
             folio, sala, turno, evento, nombre, apellido = reserva
             cliente_nombre = f"{nombre} {apellido}"
-            print(f"{folio:<8}{sala:<16}{turno:<16}{evento:<24}{cliente_nombre:<24}")
+            print(f"{folio:<8}{sala:<16}{turno:<16}{evento:<20}{cliente_nombre:<24}")
     
     except sqlite3.Error as e:
             print(e)    
@@ -526,18 +548,18 @@ def consultar_reservaciones():
         print(f"Error al consultar reservaciones: {sys.exc_info()[0:2]} ")
     else:
         menu_exportacion(fecha)
- 
+
+
+
 def new_cliente():
     try:
-        
         nombre = input("Nombre: ").strip()
-    
-        if not (nombre.isalpha() ):
-            print("\nEl nombre debe contener solo letras y no puede estar vacio.\n")
+        if not (nombre.replace(" ", "").isalpha()):
+            print("Error al agregar cliente, solo se permiten letras. Introduzca nuevamente.")
             return
         apellidos = input("Apellidos: ").strip()
-        if not (apellidos.isalpha()):
-            print("\nLos apellidos deben contener solo letras y no puede estar vacio.\n")
+        if not (apellidos.replace(" ", "").isalpha()):
+            print("Error al agregar cliente, solo se permiten letras. Introduzca nuevamente.")
             return
         
         with sqlite3.connect("archivo.db") as conn:
@@ -564,7 +586,7 @@ def new_cliente():
 def new_sala():
     try:
         nombre = input("Nombre de la sala: ").strip()
-        if not nombre.isalpha() :
+        if not (nombre.replace(" ", "").isalpha()) :
             print("\nEl nombre de la sala debe contener solo letras y no puede estar vacio.\n")
             return
         
@@ -590,6 +612,78 @@ def new_sala():
     else:
         print(f"\nSala registrada con clave: {clave}\n\n")
 
+
+def cancelar_rsv():
+    fecha_inicial_str = input("Fecha inicial (mm/dd/aaaa): ").strip()
+    fecha_final_str = input("Fecha final (mm/dd/aaaa): ").strip()
+    try:
+        fecha_inicial = datetime.datetime.strptime(fecha_inicial_str, FORMATO_FECHA).date()
+        fecha_final = datetime.datetime.strptime(fecha_final_str, FORMATO_FECHA).date()
+    except ValueError:
+        print("Error: Formato de fecha incorrecto. \n")
+        return
+
+    with sqlite3.connect("archivo.db", 
+                         detect_types = sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''SELECT r.folio, r.evento, r.fecha
+                           FROM Reservacion r
+                           WHERE r.fecha BETWEEN ? AND ? AND r.cancelado = 0 ''', (fecha_inicial, fecha_final))
+            eventos = cursor.fetchall()
+
+    if not eventos:
+        print("No hay eventos en ese rango.\n")
+        return
+
+    print(f"{'FOLIO':<10}{'NOMBRE':<20}{'FECHA'}")
+    print("-" * 40)
+    for folio, evento ,fecha in eventos:
+        print(f"{folio:<10}{evento:<20}{fecha}")
+
+    while True:
+        try:
+            folio_cancelar = int(input("Ingrese el folio de la reservación a cancelar: "))
+
+            reserva_encontrada = None
+            for folio, evento ,fecha in eventos:
+                if folio == folio_cancelar:
+                    reserva_encontrada = (folio, evento ,fecha)
+                    break
+
+            if not reserva_encontrada:
+                print("Folio no encontrado.")
+                continue
+
+            if (reserva_encontrada[2] - fecha_actual).days < 2:
+                print("\nNo se puede cancelar. La reservación debe tener al menos 2 días de anticipación.\n")
+                continue
+
+            confirmacion = input("Esta seguro que desea cancelar? (S/N): ").strip().upper()
+            if not confirmacion.isalpha():
+                    print("respuesta invalida")
+                    continue
+
+            if confirmacion== "S":
+                with sqlite3.connect("archivo.db") as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                                      UPDATE Reservacion 
+                                      SET cancelado = 1
+                                      WHERE folio = ?
+                                   ''', (folio_cancelar,))
+                    print("Reservación cancelada exitosamente.")
+                break
+
+            elif confirmacion == "N":
+                print("Operacion cancelada")
+            break
+
+        except sqlite3.Error as e:
+            print(e)   
+        except ValueError:
+            print("Error: Folio debe ser un número.")
+
+
 def main():
     conectar_db()
     while True:
@@ -599,36 +693,37 @@ def main():
         print("[3] Consultar reservaciones")
         print("[4] Registrar cliente")
         print("[5] Registrar sala")
-        print("[6] Salir")
+        print("[6] Cancelar una reservación")
+        print("[7] Salir")
         try:
             op = input("\nElige una opción: ").strip()
             if op == "1":
                 print("\n")
                 reservacion()
-                
+
             elif op == "2":
                 print("\n")
                 editar_reservacion()
-                
 
             elif op == "3":
                 print("\n")
                 consultar_reservaciones()
-                
 
             elif op == "4":
                 print("\n")
                 new_cliente()
-                
 
             elif op == "5":
                 print("\n")
                 new_sala()
-                
 
             elif op == "6":
                 print("\n")
-                
+                cancelar_rsv()
+
+            elif op == "7":
+                print("\n")
+
                 try:
                     confirmacion = input("Esta seguro que desea salir? (S/N): ").strip()
                     if not confirmacion.isalpha():
@@ -657,5 +752,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
