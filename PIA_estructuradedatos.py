@@ -8,6 +8,9 @@ from openpyxl.styles import Font, Border, Side, Alignment
 import sqlite3
 from sqlite3  import Error
 import os
+import warnings
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 FORMATO_FECHA = "%m/%d/%Y"
 fecha_actual = datetime.datetime.now().date()
@@ -752,3 +755,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
