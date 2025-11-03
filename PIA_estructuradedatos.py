@@ -49,10 +49,10 @@ def inicializar_db(conn):
                     id_cliente INTEGER,
                     id_sala INTEGER,
                     fecha DATE NOT NULL,
-                    id_turno INTEGER NOT NULL,
+                    turno INTEGER NOT NULL,
                     evento INTEGER NOT NULL,
                     cancelado INTEGER NOT NULL,
-                    FOREIGN KEY (id_turno) REFERENCES Turno (id_turno),
+                    FOREIGN KEY (turno) REFERENCES Turno (turno),
                     FOREIGN KEY (id_cliente) REFERENCES Cliente (id_cliente),
                     FOREIGN KEY (id_sala) REFERENCES Sala (id_sala)
                 )
@@ -755,6 +755,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
