@@ -1,4 +1,3 @@
-
 import datetime
 import sys
 import json
@@ -8,9 +7,6 @@ from openpyxl.styles import Font, Border, Side, Alignment
 import sqlite3
 from sqlite3  import Error
 import os
-import warnings
-
-warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 FORMATO_FECHA = "%m/%d/%Y"
 fecha_actual = datetime.datetime.now().date()
@@ -49,10 +45,10 @@ def inicializar_db(conn):
                     id_cliente INTEGER,
                     id_sala INTEGER,
                     fecha DATE NOT NULL,
-                    turno INTEGER NOT NULL,
+                    id_turno INTEGER NOT NULL,
                     evento INTEGER NOT NULL,
                     cancelado INTEGER NOT NULL,
-                    FOREIGN KEY (turno) REFERENCES Turno (turno),
+                    FOREIGN KEY (id_turno) REFERENCES Turno (id_turno),
                     FOREIGN KEY (id_cliente) REFERENCES Cliente (id_cliente),
                     FOREIGN KEY (id_sala) REFERENCES Sala (id_sala)
                 )
@@ -108,13 +104,15 @@ def conectar_db():
                     continue
             else:
                 print("Esa opcion no existe")
-                continue         
+                continue
+                    
         else:
             print(f" No se encontró una versión anterior archivo.db .")
             print("Iniciando con un estado inicial vacío.")
     
             conn = sqlite3.connect("archivo.db")
             return inicializar_db(conn)
+
 
 
 def generar_folio():
@@ -125,9 +123,9 @@ def generar_folio():
             result = cursor.fetchone()
             
             return (result[0] or 1000) + 1  
+        
     except sqlite3.Error as e:
         print(e)
-
 
 def mostrar_clientes():
     try:
@@ -148,8 +146,8 @@ def mostrar_clientes():
         print(f"Error al mostrar clientes: {e}")
         return False
 
-
 def mostrar_salas_disponibles(fecha, turno):
+    
     try:
         with sqlite3.connect("archivo.db") as conn:
             cursor = conn.cursor()
@@ -159,7 +157,7 @@ def mostrar_salas_disponibles(fecha, turno):
                 WHERE s.id_sala NOT IN (
                     SELECT r.id_sala 
                     FROM Reservacion r
-                    WHERE r.fecha = ? AND r.turno = ? AND r.cancelado = 0
+                    WHERE r.fecha = ? AND r.id_turno = ? AND r.cancelado = 0
                 )
             ''', (fecha, turno))
             
@@ -177,11 +175,12 @@ def mostrar_salas_disponibles(fecha, turno):
         return []
 
 
+
 def export_csv(fecha):
     datos_a_leer = {}
     with sqlite3.connect("archivo.db", detect_types = sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
         cursor = conn.cursor()
-        cursor.execute("Select r.folio, r.fecha, r.id_sala, r.turno, r.evento, r.id_cliente From Reservacion r WHERE r.fecha = (?) AND r.cancelado = 0", (fecha,))
+        cursor.execute("Select r.folio, r.fecha, r.id_sala, t.turno, r.evento, r.id_cliente From Reservacion r INNER JOIN Turno t ON r.id_turno = t.id_turno WHERE r.fecha = (?) AND r.cancelado = 0", (fecha,))
         reservaciones = cursor.fetchall()
                                
 
@@ -191,7 +190,8 @@ def export_csv(fecha):
 
         for folio, fecha_db, sala, turno, evento, cliente in reservaciones:
                 grabador.writerow((folio, fecha_db, sala, turno, evento, cliente ))
-    
+                
+
     print(f"\nDatos exportados exitosamente a 'reservaciones.csv'")
 
     with open("reservaciones.csv","r", encoding='utf-8', newline="") as archivo:
@@ -201,11 +201,11 @@ def export_csv(fecha):
         for folio, fecha, sala, turno, evento, cliente in lector:
                 datos_a_leer[int(folio)] = [fecha, sala, turno, evento, cliente]
 
-
 def export_json(fecha):
+    
     with sqlite3.connect("archivo.db", detect_types = sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
         cursor = conn.cursor()
-        cursor.execute("Select r.folio, r.id_cliente, r.id_sala, r.fecha, r.turno, r.evento From Reservacion r WHERE r.fecha = (?) AND r.cancelado = 0", (fecha,))
+        cursor.execute("Select r.folio,  r.id_cliente, r.id_sala, r.fecha, t.turno, r.evento From Reservacion r INNER JOIN Turno t ON r.id_turno = t.id_turno WHERE r.fecha = (?) AND r.cancelado = 0", (fecha,))
 
         reservaciones = cursor.fetchall()
         
@@ -227,12 +227,11 @@ def export_json(fecha):
     print(f"\nDatos exportados exitosamente a 'reservaciones.json'")
     print(f"Total de reservaciones exportadas: {len(datos_leer)}")
 
-
 def export_excel(fecha):
     try:
         with sqlite3.connect("archivo.db", detect_types = sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
             cursor = conn.cursor()
-            cursor.execute("Select r.folio, r.id_sala, r.fecha, r.turno, r.evento, r.id_cliente From Reservacion r WHERE r.fecha = (?) AND r.cancelado = 0", (fecha,))
+            cursor.execute("Select r.folio, r.id_sala, r.fecha, t.turno, r.evento, r.id_cliente From Reservacion r INNER JOIN Turno t ON r.id_turno = t.id_turno WHERE r.fecha = (?) AND r.cancelado = 0", (fecha,))
 
             reservaciones_db = cursor.fetchall()    
 
@@ -288,7 +287,6 @@ def export_excel(fecha):
     except Exception:
         print(f"\nError al guardar excel: {sys.exc_info()[0:2]}\n")
 
-
 def menu_exportacion(fecha):
     while True:
             exportar = input("\nDesea exportar esta consulta a otro tipo de archivo? (S/N): ").strip()
@@ -327,6 +325,7 @@ def menu_exportacion(fecha):
                 except Exception:
                     print(f"Ocurrió un problema: {sys.exc_info()[0:2]}")
                     continue
+
 
 
 def reservacion():
@@ -383,6 +382,7 @@ def reservacion():
                     else:
                         print("Esa opcion no existe")
                 break
+            
             except ValueError:
                 print("\nFormato de fecha incorrecto.\n\n")
                 continue
@@ -396,6 +396,8 @@ def reservacion():
 
             turno = input("\nSelecciona turno (1-3):  ").strip()
             print("\n\n")
+            
+
             with sqlite3.connect("archivo.db") as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT turno FROM Turno t WHERE t.id_turno = (?)", (turno))
@@ -433,7 +435,7 @@ def reservacion():
         with sqlite3.connect("archivo.db") as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO Reservacion (folio, id_cliente, id_sala, fecha, turno, evento, cancelado)
+                INSERT INTO Reservacion (folio, id_cliente, id_sala, fecha, id_turno, evento, cancelado)
                 VALUES (?, ?, ?, ?, ?, ?, 0)
             ''', (folio, clave_cliente, clave_sala, fecha, turno, evento))
 
@@ -443,7 +445,6 @@ def reservacion():
         return
     except Exception:
         print(f"\nError en reservación: {sys.exc_info()[0:2]}\n ")
-
 
 def editar_reservacion():
     try:
@@ -501,13 +502,13 @@ def editar_reservacion():
                     cursor.execute("UPDATE Reservacion SET evento=? WHERE folio=?", (nuevo_nombre, folio_seleccionado))
                 print("Evento actualizado.")
                 break
-
+        
+    
     except Exception:
         print(f"Error al editar reservación: {sys.exc_info()[0:2]} ")
     except ValueError:
         print("Formato de fecha incorrecto.")
         return
-
 
 def consultar_reservaciones():
     try:
@@ -520,11 +521,12 @@ def consultar_reservaciones():
         
         with sqlite3.connect("archivo.db") as conn:
             cursor = conn.cursor()
-            cursor.execute ('''SELECT r.folio, s.nombre_sala, r.turno, r.evento, 
+            cursor.execute ('''SELECT r.folio, s.nombre_sala, t.turno, r.evento, 
                             c.nombre_cliente, c.apellido
                             FROM Reservacion r
                             INNER JOIN Cliente c ON r.id_cliente = c.id_cliente 
                             INNER JOIN Sala s ON r.id_sala = s.id_sala
+                            INNER JOIN Turno t ON r.id_turno = t.id_turno 
                             WHERE r.fecha = ? AND r.cancelado = 0 ''', (fecha,))
             reservaciones = cursor.fetchall()
         
@@ -533,7 +535,7 @@ def consultar_reservaciones():
             return
             
         print("*" * 80)
-        print(f"{'Reservaciones':^76}")
+        print(f"**{'Reservaciones':^76}**")
         print("*" * 80)
         print(f"{'Folio':<8}{'Sala':<16}{'Turno':<16}{'Evento':<20}{'Cliente':<24}")
         print("=" * 80)
@@ -557,11 +559,11 @@ def consultar_reservaciones():
 def new_cliente():
     try:
         nombre = input("Nombre: ").strip()
-        if not (nombre.replace(" ", "").isalpha()):
+        if not (nombre.isalpha()):
             print("Error al agregar cliente, solo se permiten letras. Introduzca nuevamente.")
             return
         apellidos = input("Apellidos: ").strip()
-        if not (apellidos.replace(" ", "").isalpha()):
+        if not (apellidos.isalpha()):
             print("Error al agregar cliente, solo se permiten letras. Introduzca nuevamente.")
             return
         
@@ -585,11 +587,10 @@ def new_cliente():
     else:
         print(f"\nCliente registrado con clave: {cliente_id}\n\n")
 
-
 def new_sala():
     try:
         nombre = input("Nombre de la sala: ").strip()
-        if not (nombre.replace(" ", "").isalpha()) :
+        if not nombre.isalpha() :
             print("\nEl nombre de la sala debe contener solo letras y no puede estar vacio.\n")
             return
         
@@ -616,7 +617,10 @@ def new_sala():
         print(f"\nSala registrada con clave: {clave}\n\n")
 
 
+
 def cancelar_rsv():
+    
+    
     fecha_inicial_str = input("Fecha inicial (mm/dd/aaaa): ").strip()
     fecha_final_str = input("Fecha final (mm/dd/aaaa): ").strip()
     try:
@@ -625,6 +629,7 @@ def cancelar_rsv():
     except ValueError:
         print("Error: Formato de fecha incorrecto. \n")
         return
+
 
     with sqlite3.connect("archivo.db", 
                          detect_types = sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
@@ -755,6 +760,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
